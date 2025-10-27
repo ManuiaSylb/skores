@@ -515,8 +515,6 @@ class _GameScreenState extends State<GameScreen> {
         } else {
           total += -10 * (pari - plis).abs();
         }
-      } else if (bonus != 0) {
-        total += bonus;
       }
     }
 

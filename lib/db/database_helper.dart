@@ -19,7 +19,7 @@ class DatabaseHelper {
     final path = join(dbPath, filePath);
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -47,6 +47,28 @@ class DatabaseHelper {
       try {
         await db.execute('ALTER TABLE manche_scores ADD COLUMN skullking_captured INTEGER DEFAULT 0');
       } catch (e) {}
+    }
+
+    if (oldVersion < 3) {
+      // Create temporary table without players column
+      await db.execute('''
+        CREATE TABLE games_temp(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL
+        )
+      ''');
+
+      // Copy data from old table to new one
+      await db.execute('''
+        INSERT INTO games_temp (id, date)
+        SELECT id, date FROM games
+      ''');
+
+      // Drop old table
+      await db.execute('DROP TABLE games');
+
+      // Rename new table to original name
+      await db.execute('ALTER TABLE games_temp RENAME TO games');
       // ensure UNIQUE constraint: SQLite cannot add UNIQUE constraint to existing table easily
       // We rely on the CREATE path for new DBs. For existing DBs, duplicates won't block inserts but
       // our save method uses INSERT OR REPLACE which will replace rows only if PRIMARY KEY or unique
@@ -59,8 +81,7 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE games(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        players TEXT NOT NULL
+        date TEXT NOT NULL
       )
     ''');
 
@@ -107,7 +128,6 @@ class DatabaseHelper {
     return await db.insert('games', {
       'id': game.id,
       'date': game.date,
-      'players': '', // Ce champ n'est plus utilisé
     });
   }
 
@@ -210,6 +230,37 @@ class DatabaseHelper {
       };
     }
     return scores;
+  }
+
+  Future<Map<int, Map<int, Map<int, Map<String, int?>>>>>
+  getAllPlayerStats() async {
+    final db = await instance.database;
+    final result = await db.query('manche_scores');
+
+    final stats = <int, Map<int, Map<int, Map<String, int?>>>>{};
+    for (final row in result) {
+      final mancheId = row['id'] as int;
+      final playerId = row['player_id'] as int;
+      final gameId = row['game_id'] as int;
+
+      stats.putIfAbsent(playerId, () => {});
+      stats[playerId]!.putIfAbsent(gameId, () => {});
+      stats[playerId]![gameId]!.putIfAbsent(mancheId, () => {});
+
+      stats[playerId]![gameId]![mancheId] = {
+        'game_id': row['game_id'] as int?,
+        'manche_num': row['manche_num'] as int?,
+        'pari': row['pari'] as int?,
+        'plis': row['plis'] as int?,
+        'bonus': row['bonus'] as int?,
+        'colored_fourteens': row['colored_fourteens'] as int?,
+        'black_fourteen': row['black_fourteen'] as int?,
+        'captured_mermaids': row['captured_mermaids'] as int?,
+        'captured_pirates': row['captured_pirates'] as int?,
+        'skullking_captured': row['skullking_captured'] as int?,
+      };
+    }
+    return stats;
   }
 
   Future close() async {

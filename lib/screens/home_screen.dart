@@ -60,9 +60,18 @@ class _HomeScreenState extends State<HomeScreen> {
   void _deleteSelectedGames() async {
     final db = DatabaseHelper.instance;
     for (var id in selectedGames) {
-      await db.database.then(
-        (db) => db.delete('games', where: 'id = ?', whereArgs: [id]),
+      final database = await db.database;
+      await database.delete(
+        'manche_scores',
+        where: 'game_id = ?',
+        whereArgs: [id],
       );
+      await database.delete(
+        'game_players',
+        where: 'game_id = ?',
+        whereArgs: [id],
+      );
+      await database.delete('games', where: 'id = ?', whereArgs: [id]);
     }
     setState(() {
       selectedGames.clear();

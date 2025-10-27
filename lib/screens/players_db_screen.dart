@@ -85,6 +85,90 @@ class _PlayersDbScreenState extends State<PlayersDbScreen> {
     );
   }
 
+  Future<void> _showPlayerStats(Player player) async {
+    // Fetch aggregated stats for all players, then extract for this player
+    final allStats = await DatabaseHelper.instance.getAllPlayerStats();
+    final playerStats = allStats[player.id] ?? {};
+
+    // Example aggregates
+    final gamesPlayed = playerStats.keys.length;
+    int totalPoints = 0;
+    int totalError = 0;
+    int totalManchesplayed = 0;
+
+    for (final gameMap in playerStats.values) {
+      for (final mancheMap in gameMap.values) {
+        if (mancheMap['pari'] != null && mancheMap['plis'] != null) {
+          totalManchesplayed++;
+          int plis = mancheMap['plis'] ?? 0;
+          int pari = mancheMap['pari'] ?? 0;
+          int bonus = mancheMap['bonus'] ?? 0;
+          int mancheNum = mancheMap['manche_num'] ?? 0;
+          if (pari == plis && pari != 0) {
+            totalPoints += 20 * pari + bonus;
+          } else if (pari == 0) {
+            if (plis == 0) {
+              totalPoints += 10 * mancheNum + bonus;
+            } else {
+              totalPoints += -10 * mancheNum;
+            }
+          } else {
+            totalPoints += -10 * (pari - plis).abs();
+          }
+        }
+
+        totalError += ((mancheMap['pari'] ?? 0) - (mancheMap['plis'] ?? 0));
+      }
+    }
+
+    double meanAverageError = totalManchesplayed > 0
+        ? (totalError / totalManchesplayed)
+        : 0.0;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    player.name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Parties jouées : $gamesPlayed'),
+                  Text('Total de points : $totalPoints'),
+                  Text(
+                    'Erreur moyenne de pari : ${meanAverageError > 0 ? "+" : ""}$meanAverageError',
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Fermer'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -161,7 +245,7 @@ class _PlayersDbScreenState extends State<PlayersDbScreen> {
                                   }
                                 });
                               }
-                            : null,
+                            : () => _showPlayerStats(player),
                         child: Card(
                           color: Colors.white,
                           elevation: 2,

@@ -3,13 +3,13 @@ class Game {
   final String date;
   List<String> players;
 
-  Game({this.id, required this.date, required this.players});
+  Game({this.id, required this.date, List<String>? players})
+      : players = players ?? [];
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'date': date,
-      'players': '', // Ce champ n'est plus utilisé
     };
   }
 
