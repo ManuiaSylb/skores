@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/player.dart';
+import '../models/game.dart';
 
 class GameScreen extends StatefulWidget {
   final int gameId;
@@ -14,6 +15,7 @@ class _GameScreenState extends State<GameScreen> {
   final PageController _controller = PageController();
   int _currentPage = 0;
   List<Player> players = [];
+  Game? game;
 
   // Structure : mancheData[manche][playerId] = { 'pari': x, 'plis': y, 'bonus': z }
   final Map<int, Map<int, Map<String, int?>>> mancheData = {};
@@ -31,10 +33,13 @@ class _GameScreenState extends State<GameScreen> {
     final scoresData = await DatabaseHelper.instance.getAllMancheScores(
       widget.gameId,
     );
+    final games = await DatabaseHelper.instance.getAllGames();
+    final currentGame = games.firstWhere((g) => g.id == widget.gameId);
 
     setState(() {
       players = playersData;
       mancheData.addAll(scoresData);
+      game = currentGame;
     });
   }
 
@@ -139,7 +144,7 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ],
             ),
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 15),
             child: Row(
               children: columnTitles
                   .map(
@@ -169,7 +174,7 @@ class _GameScreenState extends State<GameScreen> {
             final bonus = data['bonus'] ?? 0;
 
             // score total cumulé toutes manches
-            final totalScore = _calculateTotalScore(p.id!);
+            final totalScore = _calculateTotalScore(p.id!, mancheNum);
 
             return Container(
               margin: const EdgeInsets.symmetric(vertical: 6),
@@ -187,16 +192,39 @@ class _GameScreenState extends State<GameScreen> {
               ),
               child: Row(
                 children: [
-                  // Joueur
+                  // Nom du joueur + distributeur
                   Expanded(
-                    child: Text(
-                      p.name,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    flex: 4,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            p.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (game != null &&
+                            players.indexOf(p) == game!.getDealer(mancheNum))
+                          Container(
+                            margin: const EdgeInsets.only(left: 5),
+                            child: const Tooltip(
+                              message: 'Distributeur',
+                              child: Icon(
+                                Icons.circle,
+                                size: 6,
+                                color: Color.fromARGB(255, 89, 40, 28),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
+
                   // Pari
                   Expanded(
+                    flex: 3,
                     child: _buildDropdown(
                       value: pari,
                       items: pariOptions,
@@ -204,8 +232,10 @@ class _GameScreenState extends State<GameScreen> {
                           _updateMancheValue(mancheNum, p.id!, 'pari', val),
                     ),
                   ),
+
                   // Plis
                   Expanded(
+                    flex: 3,
                     child: _buildDropdown(
                       value: plis,
                       items: plisOptions,
@@ -213,34 +243,43 @@ class _GameScreenState extends State<GameScreen> {
                           _updateMancheValue(mancheNum, p.id!, 'plis', val),
                     ),
                   ),
-                  // Bonus
-                  Expanded(
-                    child: Builder(builder: (context) {
-                      final canEditBonus = pari != null && plis != null && pari == plis;
 
-                      return Tooltip(
-                        message: canEditBonus
-                            ? 'Modifier le bonus'
-                            : 'Le bonus est disponible uniquement si pari == plis',
-                        child: TextButton(
-                          onPressed: canEditBonus
-                              ? () => _showBonusDialog(mancheNum, p.id!, bonus)
-                              : null,
-                          child: Text(
-                            bonus > 0 ? '$bonus' : '-',
-                            style: TextStyle(
-                              color: bonus > 0 ? const Color.fromARGB(255, 81, 81, 81) : const Color.fromARGB(255, 81, 81, 81),
-                              fontWeight: bonus > 0
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
+                  // Bonus
+                  Expanded( 
+                    flex: 3,
+                    child: Builder(
+                      builder: (context) {
+                        final canEditBonus =
+                            pari != null && plis != null && pari == plis;
+
+                        return Tooltip(
+                          message: canEditBonus
+                              ? 'Modifier le bonus'
+                              : 'Le bonus est disponible uniquement si pari == plis',
+                          child: TextButton(
+                            onPressed: canEditBonus
+                                ? () =>
+                                      _showBonusDialog(mancheNum, p.id!, bonus)
+                                : null,
+                            child: Text(
+                              bonus > 0 ? '$bonus' : '-',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: const Color.fromARGB(255, 81, 81, 81),
+                                fontWeight: bonus > 0
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    }),
+                        );
+                      },
+                    ),
                   ),
-                  // Score total
+
+                  // Total
                   Expanded(
+                    flex: 3,
                     child: Text(
                       '$totalScore',
                       textAlign: TextAlign.center,
@@ -254,6 +293,10 @@ class _GameScreenState extends State<GameScreen> {
               ),
             );
           }),
+          if (mancheNum == 10) ...[
+            const SizedBox(height: 20),
+            _buildEndGameButton(),
+          ],
         ],
       ),
     );
@@ -267,7 +310,8 @@ class _GameScreenState extends State<GameScreen> {
     return DropdownButtonHideUnderline(
       child: DropdownButton<int>(
         value: value,
-        hint: const Text('-'),
+        hint: const Center(child: Text('-')),
+        alignment: AlignmentDirectional.center,
         isExpanded: true,
         items: items
             .map(
@@ -278,6 +322,66 @@ class _GameScreenState extends State<GameScreen> {
             )
             .toList(),
         onChanged: (val) => setState(() => onChanged(val)),
+      ),
+    );
+  }
+
+  Widget _buildEndGameButton() {
+    // Vérifie si toutes les manches sont complètes pour tous les joueurs
+    final allFilled = List.generate(10, (i) => i + 1).every((m) {
+      return players.every((p) {
+        final data = mancheData[m]?[p.id!];
+        return data != null && data['pari'] != null && data['plis'] != null;
+      });
+    });
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: allFilled
+              ? const Color.fromARGB(255, 89, 40, 28)
+              : Colors.grey,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        onPressed: allFilled
+            ? () async {
+                for (var p in players) {
+                  final totalScore = _calculateTotalScore(p.id!, 10);
+                  final betAndPlis = _countBetAndPlis(p.id!);
+                  final totalBet = betAndPlis['totalBet']!;
+                  final totalPlis = betAndPlis['totalPlis']!;
+                  await DatabaseHelper.instance.saveGameScore(
+                    widget.gameId,
+                    p.id!,
+                    totalScore,
+                    totalBet,
+                    totalPlis,
+                  );
+                }
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Partie terminée et scores sauvegardés !'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                  Navigator.pop(context);
+                }
+              }
+            : null,
+        child: const Text(
+          'Terminer la partie',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }
@@ -491,11 +595,12 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  int _calculateTotalScore(int playerId) {
+  int _calculateTotalScore(int playerId, int manche) {
     int total = 0;
 
     for (var mancheEntry in mancheData.entries) {
       final mancheNum = mancheEntry.key;
+      if (mancheNum > manche) break;
       final data = mancheEntry.value[playerId];
       if (data == null) continue;
 
@@ -519,5 +624,22 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     return total;
+  }
+
+  Map<String, int> _countBetAndPlis(int playerId) {
+    int totalBet = 0;
+    int totalPlis = 0;
+
+    for (var mancheEntry in mancheData.entries) {
+      final data = mancheEntry.value[playerId];
+      if (data == null) continue;
+
+      final pari = data['pari'];
+      totalBet += pari ?? 0;
+      final plis = data['plis'];
+      totalPlis += plis ?? 0;
+    }
+
+    return {'totalBet': totalBet, 'totalPlis': totalPlis};
   }
 }

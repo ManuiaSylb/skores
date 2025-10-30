@@ -19,61 +19,201 @@ class DatabaseHelper {
     final path = join(dbPath, filePath);
     return await openDatabase(
       path,
-      version: 3,
+      version: 5,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
   }
 
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
-    // handle migrations from older versions to newer ones
     if (oldVersion < 2) {
-      // add the new bonus detail columns if they don't exist yet
-      // use try/catch to ignore errors if column already present
       try {
-        await db.execute('ALTER TABLE manche_scores ADD COLUMN colored_fourteens INTEGER DEFAULT 0');
-      } catch (e) {
-        // ignore
-      }
+        await db.execute(
+          'ALTER TABLE manche_scores ADD COLUMN colored_fourteens INTEGER DEFAULT 0',
+        );
+      } catch (_) {}
       try {
-        await db.execute('ALTER TABLE manche_scores ADD COLUMN black_fourteen INTEGER DEFAULT 0');
-      } catch (e) {}
+        await db.execute(
+          'ALTER TABLE manche_scores ADD COLUMN black_fourteen INTEGER DEFAULT 0',
+        );
+      } catch (_) {}
       try {
-        await db.execute('ALTER TABLE manche_scores ADD COLUMN captured_mermaids INTEGER DEFAULT 0');
-      } catch (e) {}
+        await db.execute(
+          'ALTER TABLE manche_scores ADD COLUMN captured_mermaids INTEGER DEFAULT 0',
+        );
+      } catch (_) {}
       try {
-        await db.execute('ALTER TABLE manche_scores ADD COLUMN captured_pirates INTEGER DEFAULT 0');
-      } catch (e) {}
+        await db.execute(
+          'ALTER TABLE manche_scores ADD COLUMN captured_pirates INTEGER DEFAULT 0',
+        );
+      } catch (_) {}
       try {
-        await db.execute('ALTER TABLE manche_scores ADD COLUMN skullking_captured INTEGER DEFAULT 0');
-      } catch (e) {}
+        await db.execute(
+          'ALTER TABLE manche_scores ADD COLUMN skullking_captured INTEGER DEFAULT 0',
+        );
+      } catch (_) {}
     }
 
     if (oldVersion < 3) {
-      // Create temporary table without players column
       await db.execute('''
-        CREATE TABLE games_temp(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          date TEXT NOT NULL
-        )
-      ''');
-
-      // Copy data from old table to new one
+      CREATE TABLE games_temp(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL
+      )
+    ''');
       await db.execute('''
-        INSERT INTO games_temp (id, date)
-        SELECT id, date FROM games
-      ''');
-
-      // Drop old table
+      INSERT INTO games_temp (id, date)
+      SELECT id, date FROM games
+    ''');
       await db.execute('DROP TABLE games');
-
-      // Rename new table to original name
       await db.execute('ALTER TABLE games_temp RENAME TO games');
-      // ensure UNIQUE constraint: SQLite cannot add UNIQUE constraint to existing table easily
-      // We rely on the CREATE path for new DBs. For existing DBs, duplicates won't block inserts but
-      // our save method uses INSERT OR REPLACE which will replace rows only if PRIMARY KEY or unique
-      // constraint exists; since adding a unique constraint to existing table is complex, recommend
-      // reinstalling app to fully apply the new schema if you need the UNIQUE behavior immediately.
+    }
+
+    if (oldVersion < 4) {
+      await db.execute('''
+      CREATE TABLE game_players_temp(
+        game_id INTEGER NOT NULL,
+        player_id INTEGER NOT NULL,
+        player_order INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE CASCADE,
+        FOREIGN KEY (player_id) REFERENCES players (id) ON DELETE CASCADE,
+        UNIQUE(game_id, player_order)
+      )
+    ''');
+
+      await db.execute('''
+      INSERT INTO game_players_temp (game_id, player_id, player_order)
+      SELECT game_id, player_id, 
+        (SELECT COUNT(*) 
+         FROM game_players gp2 
+         WHERE gp2.game_id = gp1.game_id AND gp2.player_id <= gp1.player_id) - 1
+      FROM game_players gp1
+    ''');
+
+      await db.execute('DROP TABLE game_players');
+      await db.execute('ALTER TABLE game_players_temp RENAME TO game_players');
+    }
+
+    if (oldVersion < 5) {
+      try {
+        await db.execute(
+          'ALTER TABLE game_players ADD COLUMN player_final_score INTEGER DEFAULT NULL',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE game_players ADD COLUMN player_total_bet INTEGER DEFAULT NULL',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE game_players ADD COLUMN player_total_plis INTEGER DEFAULT NULL',
+        );
+      } catch (_) {}
+
+      final games = await db.query('games');
+      for (final game in games) {
+        final gameId = game['id'] as int;
+
+        final players = await db.rawQuery(
+          'SELECT player_id FROM game_players WHERE game_id = ?',
+          [gameId],
+        );
+
+        bool allComplete = true;
+        for (final player in players) {
+          final playerId = player['player_id'] as int;
+
+          final result = await db.rawQuery(
+            '''
+        SELECT COUNT(*) AS completeCount
+        FROM manche_scores
+        WHERE game_id = ? AND player_id = ?
+        AND pari IS NOT NULL AND plis IS NOT NULL
+        ''',
+            [gameId, playerId],
+          );
+
+          final totalManches =
+              Sqflite.firstIntValue(
+                await db.rawQuery(
+                  '''
+        SELECT COUNT(DISTINCT manche_num)
+        FROM manche_scores
+        WHERE game_id = ?
+      ''',
+                  [gameId],
+                ),
+              ) ??
+              10;
+
+          final completeCount = result.first['completeCount'] as int;
+          if (completeCount < totalManches) {
+            allComplete = false;
+            break;
+          }
+        }
+
+        if (allComplete) {
+          for (final player in players) {
+            final playerId = player['player_id'] as int;
+            final totalResult = await db.rawQuery(
+              '''
+          SELECT 
+            SUM(
+              CASE
+                WHEN pari = plis AND pari != 0 THEN (20 * pari) + COALESCE(bonus, 0)
+                WHEN pari = 0 THEN 
+                  CASE 
+                    WHEN plis = 0 THEN (10 * manche_num) + COALESCE(bonus, 0)
+                    ELSE -10 * manche_num
+                  END
+                ELSE -10 * ABS(pari - plis)
+              END
+            ) AS total
+          FROM manche_scores
+          WHERE game_id = ? AND player_id = ?
+          ''',
+              [gameId, playerId],
+            );
+
+            final totalScore = (totalResult.first['total'] ?? 0) as int;
+
+            final totalBetData = await db.rawQuery(
+              '''
+              SELECT SUM(pari) AS total_bet
+              FROM manche_scores
+              WHERE game_id = ? AND player_id = ?
+              ''',
+              [gameId, playerId],
+            );
+
+            final totalBet = (totalBetData.first['total_bet'] ?? 0) as int;
+
+            final totalPlisData = await db.rawQuery(
+              '''          
+              SELECT SUM(plis) AS total_plis
+              FROM manche_scores
+              WHERE game_id = ? AND player_id = ?
+              ''',
+              [gameId, playerId],
+            );
+
+            final totalPlis = (totalPlisData.first['total_plis'] ?? 0) as int;
+
+            await db.update(
+              'game_players',
+              {
+                'player_final_score': totalScore,
+                'player_total_bet': totalBet,
+                'player_total_plis': totalPlis,
+              },
+              where: 'game_id = ? AND player_id = ?',
+              whereArgs: [gameId, playerId],
+            );
+          }
+        }
+      }
     }
   }
 
@@ -96,8 +236,13 @@ class DatabaseHelper {
       CREATE TABLE game_players(
         game_id INTEGER NOT NULL,
         player_id INTEGER NOT NULL,
+        player_order INTEGER NOT NULL,
+        player_final_score INTEGER DEFAULT NULL,
+        player_total_bet INTEGER DEFAULT NULL,
+        player_total_plis INTEGER DEFAULT NULL,
         FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE CASCADE,
-        FOREIGN KEY (player_id) REFERENCES players (id) ON DELETE CASCADE
+        FOREIGN KEY (player_id) REFERENCES players (id) ON DELETE CASCADE,
+        UNIQUE(game_id, player_order)
       )
     ''');
 
@@ -158,21 +303,26 @@ class DatabaseHelper {
   }
 
   // Game-Player link
-  Future<void> linkPlayerToGame(int gameId, int playerId) async {
-    final db = await instance.database;
+  Future<void> linkPlayerToGame(
+    int gameId,
+    int playerId, {
+    required int order,
+  }) async {
+    final db = await database;
     await db.insert('game_players', {
       'game_id': gameId,
       'player_id': playerId,
+      'player_order': order,
     });
   }
 
   Future<List<Player>> getPlayersForGame(int gameId) async {
-    final db = await instance.database;
+    final db = await database;
     final result = await db.rawQuery('''
       SELECT p.id, p.name FROM players p
       INNER JOIN game_players gp ON p.id = gp.player_id
       WHERE gp.game_id = ?
-      ORDER BY p.name
+      ORDER BY gp.player_order
     ''', [gameId]);
     return result.map((e) => Player.fromMap(e)).toList();
   }
@@ -198,6 +348,26 @@ class DatabaseHelper {
       'captured_pirates': data['captured_pirates'] ?? 0,
       'skullking_captured': data['skullking_captured'] ?? 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> saveGameScore(
+    int gameId,
+    int playerId,
+    int playerFinalScore,
+    int playerTotalBet,
+    int playerTotalPlis,
+  ) async {
+    final db = await instance.database;
+    await db.update(
+      'game_players',
+      {
+        'player_final_score': playerFinalScore,
+        'player_total_bet': playerTotalBet,
+        'player_total_plis': playerTotalPlis,
+      },
+      where: 'game_id = ? AND player_id = ?',
+      whereArgs: [gameId, playerId],
+    );
   }
 
   Future<Map<int, Map<int, Map<String, int?>>>> getAllMancheScores(
@@ -232,34 +402,53 @@ class DatabaseHelper {
     return scores;
   }
 
-  Future<Map<int, Map<int, Map<int, Map<String, int?>>>>>
-  getAllPlayerStats() async {
+  Future<Map<int, Map<int, Map<String, int?>>>> getAllPlayerStats() async {
     final db = await instance.database;
-    final result = await db.query('manche_scores');
+    final result = await db.query('game_players');
 
-    final stats = <int, Map<int, Map<int, Map<String, int?>>>>{};
+    final stats = <int, Map<int, Map<String, int?>>>{};
+
+    final games = <int, List<Map<String, dynamic>>>{};
     for (final row in result) {
-      final mancheId = row['id'] as int;
-      final playerId = row['player_id'] as int;
       final gameId = row['game_id'] as int;
+      games.putIfAbsent(gameId, () => []);
+      games[gameId]!.add(row);
+    }
+
+    for (final gameEntry in games.entries) {
+      final gameId = gameEntry.key;
+      final players = gameEntry.value;
+
+      final allHaveScores = players.every(
+        (p) => p['player_final_score'] != null,
+      );
+
+      if (!allHaveScores) {
+        continue;
+      }
+
+      final maxScore = players
+          .map((p) => p['player_final_score'] as int? ?? 0)
+          .fold<int>(0, (prev, elem) => elem > prev ? elem : prev);
+
+      for (final player in players) {
+        final playerId = player['player_id'] as int;
+        final score = player['player_final_score'] as int?;
+
+        if (score == null) continue;
 
       stats.putIfAbsent(playerId, () => {});
-      stats[playerId]!.putIfAbsent(gameId, () => {});
-      stats[playerId]![gameId]!.putIfAbsent(mancheId, () => {});
+        stats[playerId]!.putIfAbsent(gameId, () => {});
 
-      stats[playerId]![gameId]![mancheId] = {
-        'game_id': row['game_id'] as int?,
-        'manche_num': row['manche_num'] as int?,
-        'pari': row['pari'] as int?,
-        'plis': row['plis'] as int?,
-        'bonus': row['bonus'] as int?,
-        'colored_fourteens': row['colored_fourteens'] as int?,
-        'black_fourteen': row['black_fourteen'] as int?,
-        'captured_mermaids': row['captured_mermaids'] as int?,
-        'captured_pirates': row['captured_pirates'] as int?,
-        'skullking_captured': row['skullking_captured'] as int?,
+        stats[playerId]![gameId] = {
+          'player_final_score': score,
+          'player_total_bet': player['player_total_bet'] as int?,
+          'player_total_plis': player['player_total_plis'] as int?,
+          'win': score == maxScore ? 1 : 0,
       };
     }
+    }
+
     return stats;
   }
 

@@ -13,6 +13,15 @@ class Game {
     };
   }
 
+  /// Calcule qui est le distributeur pour une manche donnée
+  /// La distribution commence par le premier joueur (ordre 0) et tourne
+  /// dans le sens des aiguilles d'une montre.
+  int getDealer(int mancheNum) {
+    if (players.isEmpty) return 0;
+    // mancheNum commence à 1, on soustrait 1 pour commencer à 0
+    return (mancheNum - 1) % players.length;
+  }
+
   factory Game.fromMap(Map<String, dynamic> map) {
     return Game(
       id: map['id'],

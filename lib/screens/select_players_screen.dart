@@ -12,6 +12,90 @@ class SelectPlayersScreen extends StatefulWidget {
   State<SelectPlayersScreen> createState() => _SelectPlayersScreenState();
 }
 
+class _PlayerOrderDialog extends StatefulWidget {
+  final List<Player> players;
+
+  const _PlayerOrderDialog({required this.players});
+
+  @override
+  _PlayerOrderDialogState createState() => _PlayerOrderDialogState();
+}
+
+class _PlayerOrderDialogState extends State<_PlayerOrderDialog> {
+  late List<Player> orderedPlayers;
+
+  @override
+  void initState() {
+    super.initState();
+    orderedPlayers = List.from(widget.players);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Organisation des joueurs',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Glisse les joueurs pour définir leur ordre.\nLe premier sera le premier distributeur.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ReorderableListView(
+                shrinkWrap: true,
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    if (newIndex > oldIndex) {
+                      newIndex -= 1;
+                    }
+                    final item = orderedPlayers.removeAt(oldIndex);
+                    orderedPlayers.insert(newIndex, item);
+                  });
+                },
+                children: orderedPlayers.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final player = entry.value;
+                  return Card(
+                    key: ValueKey(player.id),
+                    child: ListTile(
+                      leading: CircleAvatar(child: Text('${index + 1}')),
+                      title: Text(player.name),
+                      trailing: const Icon(Icons.drag_handle),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Annuler'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(orderedPlayers),
+                  child: const Text('Commencer'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SelectPlayersScreenState extends State<SelectPlayersScreen> {
   List<Player> allPlayers = [];
   Set<int> selectedPlayers = {};
@@ -57,13 +141,33 @@ class _SelectPlayersScreenState extends State<SelectPlayersScreen> {
       return;
     }
 
-    // Insert the game only when the user starts it (if not already persisted)
+    // Convert selected players to list for reordering
+    List<Player> orderedPlayers = allPlayers
+        .where((p) => selectedPlayers.contains(p.id))
+        .toList();
+
+    // Show reorder dialog
+    final List<Player>? reorderedPlayers = await showDialog<List<Player>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return _PlayerOrderDialog(players: orderedPlayers);
+      },
+    );
+
+    if (reorderedPlayers == null) return; // Dialog cancelled
+
+    // Insert the game
     int gameId = widget.game.id ??
         await DatabaseHelper.instance.insertGame(widget.game);
 
-    // Link selected players to the newly created game
-    for (var pid in selectedPlayers) {
-      await DatabaseHelper.instance.linkPlayerToGame(gameId, pid);
+    // Link players in their specified order
+    for (int i = 0; i < reorderedPlayers.length; i++) {
+      await DatabaseHelper.instance.linkPlayerToGame(
+        gameId,
+        reorderedPlayers[i].id!,
+        order: i,
+      );
     }
 
     Navigator.pushReplacement(

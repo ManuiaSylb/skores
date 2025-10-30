@@ -86,48 +86,27 @@ class _PlayersDbScreenState extends State<PlayersDbScreen> {
   }
 
   Future<void> _showPlayerStats(Player player) async {
-    // Fetch aggregated stats for all players, then extract for this player
     final allStats = await DatabaseHelper.instance.getAllPlayerStats();
     final playerStats = allStats[player.id] ?? {};
 
-    // Example aggregates
     final gamesPlayed = playerStats.keys.length;
     int totalPoints = 0;
-    int totalError = 0;
-    int totalManchesplayed = 0;
+    int totalBet = 0;
+    int totalPlis = 0;
+    int totalWins = 0;
 
     for (final gameMap in playerStats.values) {
-      for (final mancheMap in gameMap.values) {
-        if (mancheMap['pari'] != null && mancheMap['plis'] != null) {
-          totalManchesplayed++;
-          int plis = mancheMap['plis'] ?? 0;
-          int pari = mancheMap['pari'] ?? 0;
-          int bonus = mancheMap['bonus'] ?? 0;
-          int mancheNum = mancheMap['manche_num'] ?? 0;
-          if (pari == plis && pari != 0) {
-            totalPoints += 20 * pari + bonus;
-          } else if (pari == 0) {
-            if (plis == 0) {
-              totalPoints += 10 * mancheNum + bonus;
-            } else {
-              totalPoints += -10 * mancheNum;
-            }
-          } else {
-            totalPoints += -10 * (pari - plis).abs();
-          }
-        }
-
-        totalError += ((mancheMap['pari'] ?? 0) - (mancheMap['plis'] ?? 0));
-      }
+      totalPoints += gameMap['player_final_score'] ?? 0;
+      totalBet += gameMap['player_total_bet'] ?? 0;
+      totalPlis += gameMap['player_total_plis'] ?? 0;
+      totalWins += gameMap['win'] ?? 0;
     }
 
-    double meanAverageError = totalManchesplayed > 0
-        ? (totalError / totalManchesplayed)
-        : 0.0;
-
-    showDialog(
+showDialog(
       context: context,
       builder: (context) {
+        final total = (gamesPlayed * 55).toDouble();
+
         return Dialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -146,13 +125,120 @@ class _PlayersDbScreenState extends State<PlayersDbScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Text('Parties jouées : $gamesPlayed'),
-                  Text('Total de points : $totalPoints'),
-                  Text(
-                    'Erreur moyenne de pari : ${meanAverageError > 0 ? "+" : ""}$meanAverageError',
-                  ),
-                  const SizedBox(height: 8),
+
+                  if (total > 0) ...[
+                    const SizedBox(height: 12),
+                    Text('Parties jouées : $gamesPlayed'),
+                    Text('Victoires : $totalWins'),
+                    Text('Total de points : $totalPoints'),
+                    const SizedBox(height: 12),
+                    const Text('Équilibre Paris / Plis :'),
+                    const SizedBox(height: 6),
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+
+                        if (totalBet != totalPlis)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Stack(
+                                  children: [
+                                    if (totalPlis > totalBet)
+                                      Container(
+                                        height: 20,
+                                        margin: EdgeInsets.only(
+                                          left:
+                                              MediaQuery.of(
+                                                context,
+                                              ).size.width /
+                                              2 *
+                                              (1 -
+                                                  (totalPlis - totalBet).abs() /
+                                                      total),
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color.fromARGB(
+                                            255,
+                                            89,
+                                            40,
+                                            28,
+                                          ),
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: Radius.circular(8),
+                                            bottomLeft: Radius.circular(8),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+
+                              Container(
+                                width: 2,
+                                height: 20,
+                                color: Colors.black,
+                              ),
+
+                              Expanded(
+                                child: Stack(
+                                  children: [
+                                    if (totalBet > totalPlis)
+                                      Container(
+                                        height: 20,
+                                        margin: EdgeInsets.only(
+                                          right:
+                                              MediaQuery.of(
+                                                context,
+                                              ).size.width /
+                                              2 *
+                                              (1 -
+                                                  (totalBet - totalPlis).abs() /
+                                                      total),
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color.fromARGB(
+                                            255,
+                                            89,
+                                            40,
+                                            28,
+                                          ),
+                                          borderRadius: BorderRadius.only(
+                                            topRight: Radius.circular(8),
+                                            bottomRight: Radius.circular(8),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+
+                        Container(width: 2, height: 20, color: Colors.black),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: const [
+                        Text('Sous-estimation', style: TextStyle(fontSize: 12)),
+                        Text(
+                          'Sur-estimation', style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ] else
+                    const Text("Aucune donnée enregistrée."),
+
+                  const SizedBox(height: 16),
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
