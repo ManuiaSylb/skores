@@ -5,7 +5,6 @@ import '../models/game.dart';
 import '../widgets/game_card.dart';
 import 'select_players_screen.dart';
 import 'game_screen.dart';
-import 'players_db_screen.dart'; // nouvel écran pour la gestion des joueurs
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -80,13 +79,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadGames();
   }
 
-  void _openPlayersDb() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const PlayersDbScreen()),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,8 +88,11 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           if (selectionMode) ...[
             IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: _deleteSelectedGames,
+              icon: Icon(
+                Icons.delete,
+                color: selectedGames.isEmpty ? Colors.grey : null,
+              ),
+              onPressed: selectedGames.isEmpty ? null : _deleteSelectedGames,
             ),
             IconButton(
               icon: const Icon(Icons.close),
@@ -113,18 +108,12 @@ class _HomeScreenState extends State<HomeScreen> {
               onSelected: (value) {
                 if (value == 'select') {
                   setState(() => selectionMode = true);
-                } else if (value == 'players') {
-                  _openPlayersDb();
                 }
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(
                   value: 'select',
                   child: Text('Sélectionner des parties'),
-                ),
-                const PopupMenuItem(
-                  value: 'players',
-                  child: Text('Voir la base de joueurs'),
                 ),
               ],
             ),

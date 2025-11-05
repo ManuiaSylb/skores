@@ -91,22 +91,44 @@ class _PlayersDbScreenState extends State<PlayersDbScreen> {
 
     final gamesPlayed = playerStats.keys.length;
     int totalPoints = 0;
-    int totalBet = 0;
-    int totalPlis = 0;
     int totalWins = 0;
 
     for (final gameMap in playerStats.values) {
       totalPoints += gameMap['player_final_score'] ?? 0;
-      totalBet += gameMap['player_total_bet'] ?? 0;
-      totalPlis += gameMap['player_total_plis'] ?? 0;
       totalWins += gameMap['win'] ?? 0;
+    }
+
+    final mancheStats = await DatabaseHelper.instance.getPlayerMancheStats(
+      player.id!,
+    );
+
+    List<double> avgBets = [];
+    List<double> avgPlis = [];
+
+    for (int manche = 1; manche <= 10; manche++) {
+      if (mancheStats.containsKey(manche)) {
+        final betsList = mancheStats[manche]!['paris']!;
+        final plisList = mancheStats[manche]!['plis']!;
+
+        if (betsList.isNotEmpty && plisList.isNotEmpty) {
+          final avgBet = betsList.reduce((a, b) => a + b) / betsList.length;
+          final avgPli = plisList.reduce((a, b) => a + b) / plisList.length;
+
+          avgBets.add(avgBet);
+          avgPlis.add(avgPli);
+        } else {
+          avgBets.add(0);
+          avgPlis.add(0);
+        }
+      } else {
+        avgBets.add(0);
+        avgPlis.add(0);
+      }
     }
 
 showDialog(
       context: context,
       builder: (context) {
-        final total = (gamesPlayed * 55).toDouble();
-
         return Dialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -126,115 +148,15 @@ showDialog(
                     ),
                   ),
 
-                  if (total > 0) ...[
+                  if (gamesPlayed > 0) ...[
                     const SizedBox(height: 12),
                     Text('Parties jouées : $gamesPlayed'),
                     Text('Victoires : $totalWins'),
                     Text('Total de points : $totalPoints'),
                     const SizedBox(height: 12),
-                    const Text('Équilibre Paris / Plis :'),
+                    const Text('Évolution Paris / Plis par manche :'),
                     const SizedBox(height: 6),
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          height: 20,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-
-                        if (totalBet != totalPlis)
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Stack(
-                                  children: [
-                                    if (totalPlis > totalBet)
-                                      Container(
-                                        height: 20,
-                                        margin: EdgeInsets.only(
-                                          left:
-                                              MediaQuery.of(
-                                                context,
-                                              ).size.width /
-                                              2 *
-                                              (1 -
-                                                  (totalPlis - totalBet).abs() /
-                                                      total),
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color.fromARGB(
-                                            255,
-                                            89,
-                                            40,
-                                            28,
-                                          ),
-                                          borderRadius: BorderRadius.only(
-                                            topLeft: Radius.circular(8),
-                                            bottomLeft: Radius.circular(8),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-
-                              Container(
-                                width: 2,
-                                height: 20,
-                                color: Colors.black,
-                              ),
-
-                              Expanded(
-                                child: Stack(
-                                  children: [
-                                    if (totalBet > totalPlis)
-                                      Container(
-                                        height: 20,
-                                        margin: EdgeInsets.only(
-                                          right:
-                                              MediaQuery.of(
-                                                context,
-                                              ).size.width /
-                                              2 *
-                                              (1 -
-                                                  (totalBet - totalPlis).abs() /
-                                                      total),
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color.fromARGB(
-                                            255,
-                                            89,
-                                            40,
-                                            28,
-                                          ),
-                                          borderRadius: BorderRadius.only(
-                                            topRight: Radius.circular(8),
-                                            bottomRight: Radius.circular(8),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-
-                        Container(width: 2, height: 20, color: Colors.black),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text('Sous-estimation', style: TextStyle(fontSize: 12)),
-                        Text(
-                          'Sur-estimation', style: TextStyle(fontSize: 12)),
-                      ],
-                    ),
+                    _buildLineChart(avgBets, avgPlis),
                   ] else
                     const Text("Aucune donnée enregistrée."),
 
@@ -255,6 +177,22 @@ showDialog(
     );
   }
 
+  Widget _buildLineChart(List<double> avgBets, List<double> avgPlis) {
+    return Container(
+      height: 280,
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: CustomPaint(
+        painter: LineChartPainter(avgBets, avgPlis),
+        child: Container(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -264,8 +202,13 @@ showDialog(
         actions: [
           if (selectionMode) ...[
             IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: _deleteSelectedPlayers,
+              icon: Icon(
+                Icons.delete,
+                color: selectedPlayers.isEmpty ? Colors.grey : null,
+              ),
+              onPressed: selectedPlayers.isEmpty
+                  ? null
+                  : _deleteSelectedPlayers,
             ),
             IconButton(
               icon: const Icon(Icons.close),
@@ -277,9 +220,18 @@ showDialog(
               },
             ),
           ] else ...[
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _showAddPlayerDialog,
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'select') {
+                  setState(() => selectionMode = true);
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'select',
+                  child: Text('Sélectionner des joueurs'),
+                ),
+              ],
             ),
           ],
         ],
@@ -369,6 +321,222 @@ showDialog(
           ),
         ],
       ),
+      floatingActionButton: !selectionMode
+          ? FloatingActionButton(
+              onPressed: _showAddPlayerDialog,
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
+}
+
+class LineChartPainter extends CustomPainter {
+  final List<double> avgBets;
+  final List<double> avgPlis;
+
+  LineChartPainter(this.avgBets, this.avgPlis);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final betPaint = Paint()
+      ..color = const Color.fromARGB(255, 89, 40, 28)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final plisPaint = Paint()
+      ..color = const Color.fromARGB(255, 183, 83, 17)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final pointPaint = Paint()..style = PaintingStyle.fill;
+
+    final textPaint = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+
+    const margin = 50.0;
+    final chartWidth = size.width - margin * 2;
+    final chartHeight = size.height - margin * 2;
+
+    final axisPaint = Paint()
+      ..color = Colors.grey[600]!
+      ..strokeWidth = 1.5;
+
+    final gridPaint = Paint()
+      ..color = Colors.grey[400]!
+      ..strokeWidth = 0.8;
+
+    for (int i = 0; i < 10; i++) {
+      final x = margin + (i * chartWidth / 9);
+      canvas.drawLine(
+        Offset(x, margin),
+        Offset(x, size.height - margin),
+        gridPaint,
+      );
+    }
+
+    for (int i = 0; i <= 10; i++) {
+      final y = size.height - margin - (i * chartHeight / 10);
+      canvas.drawLine(
+        Offset(margin, y),
+        Offset(size.width - margin, y),
+        gridPaint,
+      );
+    }
+
+    canvas.drawLine(
+      Offset(margin, size.height - margin),
+      Offset(size.width - margin, size.height - margin),
+      axisPaint,
+    );
+
+    canvas.drawLine(
+      Offset(margin, margin),
+      Offset(margin, size.height - margin),
+      axisPaint,
+    );
+
+    for (int i = 0; i < 10; i++) {
+      final x = margin + (i * chartWidth / 9);
+      textPaint.text = TextSpan(
+        text: '${i + 1}',
+        style: TextStyle(
+          fontSize: 13,
+          color: Colors.grey[700],
+          fontWeight: FontWeight.w500,
+        ),
+      );
+      textPaint.layout();
+      textPaint.paint(
+        canvas,
+        Offset(x - textPaint.width / 2, size.height - margin + 12),
+      );
+    }
+
+    // Étiquettes axe Y (0-10)
+    for (int i = 0; i <= 10; i++) {
+      final y = size.height - margin - (i * chartHeight / 10);
+      textPaint.text = TextSpan(
+        text: '$i',
+        style: TextStyle(
+          fontSize: 13,
+          color: Colors.grey[700],
+          fontWeight: FontWeight.w500,
+        ),
+      );
+      textPaint.layout();
+      textPaint.paint(canvas, Offset(12, y - textPaint.height / 2));
+    }
+
+    textPaint.text = const TextSpan(
+      text: 'Numéro de la manche',
+      style: TextStyle(
+        fontSize: 12,
+        color: Color.fromARGB(255, 71, 71, 71),
+        fontWeight: FontWeight.w500,
+      ),
+    );
+    textPaint.layout();
+    textPaint.paint(
+      canvas,
+      Offset(margin + chartWidth / 2 - textPaint.width / 2, size.height - 8),
+    );
+
+    Offset getPoint(int index, double value) {
+      final x = margin + (index * chartWidth / 9);
+      final y = size.height - margin - (value * chartHeight / 10);
+      return Offset(x, y);
+    }
+
+    Path createSmoothPath(List<double> values) {
+      final path = Path();
+      if (values.isEmpty) return path;
+
+      final points = <Offset>[];
+      for (int i = 0; i < values.length; i++) {
+        points.add(getPoint(i, values[i]));
+      }
+
+      if (points.length == 1) {
+        path.addOval(Rect.fromCircle(center: points[0], radius: 3));
+        return path;
+      }
+
+      path.moveTo(points[0].dx, points[0].dy);
+
+      for (int i = 1; i < points.length; i++) {
+        final p0 = i > 1 ? points[i - 2] : points[i - 1];
+        final p1 = points[i - 1];
+        final p2 = points[i];
+        final p3 = i < points.length - 1 ? points[i + 1] : points[i];
+
+        final cp1x = p1.dx + (p2.dx - p0.dx) / 6;
+        final cp1y = p1.dy + (p2.dy - p0.dy) / 6;
+        final cp2x = p2.dx - (p3.dx - p1.dx) / 6;
+        final cp2y = p2.dy - (p3.dy - p1.dy) / 6;
+
+        path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+      }
+
+      return path;
+    }
+
+    final betPath = createSmoothPath(avgBets);
+    canvas.drawPath(betPath, betPaint);
+
+    final plisPath = createSmoothPath(avgPlis);
+    canvas.drawPath(plisPath, plisPaint);
+
+    for (int i = 0; i < avgBets.length; i++) {
+      final betPoint = getPoint(i, avgBets[i]);
+      pointPaint.color = const Color.fromARGB(255, 89, 40, 28);
+      canvas.drawCircle(betPoint, 3, pointPaint);
+
+      final plisPoint = getPoint(i, avgPlis[i]);
+      pointPaint.color = const Color.fromARGB(255, 183, 83, 17);
+      canvas.drawCircle(plisPoint, 3, pointPaint);
+    }
+
+    final legendY = 25.0;
+    canvas.drawLine(
+      Offset(margin, legendY),
+      Offset(margin + 30, legendY),
+      betPaint,
+    );
+    textPaint.text = const TextSpan(
+      text: 'Paris',
+      style: TextStyle(
+        fontSize: 14,
+        color: Color.fromARGB(255, 89, 40, 28),
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    textPaint.layout();
+    textPaint.paint(canvas, Offset(margin + 35, legendY - 7));
+
+    canvas.drawLine(
+      Offset(margin + 120, legendY),
+      Offset(margin + 150, legendY),
+      plisPaint,
+    );
+    textPaint.text = const TextSpan(
+      text: 'Plis',
+      style: TextStyle(
+        fontSize: 14,
+        color: const Color.fromARGB(255, 183, 83, 17),
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    textPaint.layout();
+    textPaint.paint(canvas, Offset(margin + 155, legendY - 7));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

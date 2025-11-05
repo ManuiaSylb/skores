@@ -182,62 +182,72 @@ class _SelectPlayersScreenState extends State<SelectPlayersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Sélection des joueurs')),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView(
-              children: allPlayers.map((p) {
-                final selected = selectedPlayers.contains(p.id);
-                return CheckboxListTile(
-                  title: Text(p.name),
-                  value: selected,
-                  onChanged: (_) {
-                    setState(() {
-                      if (selected) {
-                        selectedPlayers.remove(p.id);
-                      } else {
-                        selectedPlayers.add(p.id!);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                children: allPlayers.map((p) {
+                  final selected = selectedPlayers.contains(p.id);
+                  return CheckboxListTile(
+                    title: Text(p.name),
+                    value: selected,
+                    onChanged: (_) {
+                      setState(() {
+                        if (selected) {
+                          selectedPlayers.remove(p.id);
+                        } else {
+                          selectedPlayers.add(p.id!);
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newPlayerController,
-                    textCapitalization: TextCapitalization.words,
-                    autocorrect: true,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _addPlayer(),
-                    decoration: const InputDecoration(
-                      labelText: 'Nouveau joueur',
-                      border: OutlineInputBorder(),
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _newPlayerController,
+                          textCapitalization: TextCapitalization.words,
+                          autocorrect: true,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _addPlayer(),
+                          decoration: const InputDecoration(
+                            labelText: 'Nouveau joueur',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _addPlayer,
+                        child: const Text('Ajouter'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _startGame,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Démarrer la partie'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _addPlayer,
-                  child: const Text('Ajouter'),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: ElevatedButton.icon(
-              onPressed: _startGame,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Démarrer la partie'),
-            ),
-          )
-        ],
+          ],
+        ),
       ),
     );
   }

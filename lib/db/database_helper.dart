@@ -429,7 +429,7 @@ class DatabaseHelper {
 
       final maxScore = players
           .map((p) => p['player_final_score'] as int? ?? 0)
-          .fold<int>(0, (prev, elem) => elem > prev ? elem : prev);
+          .reduce((a, b) => a > b ? a : b);
 
       for (final player in players) {
         final playerId = player['player_id'] as int;
@@ -447,6 +447,36 @@ class DatabaseHelper {
           'win': score == maxScore ? 1 : 0,
       };
     }
+    }
+
+    return stats;
+  }
+
+  Future<Map<int, Map<String, List<int>>>> getPlayerMancheStats(
+    int playerId,
+  ) async {
+    final db = await instance.database;
+    final result = await db.rawQuery(
+      '''
+      SELECT ms.manche_num, ms.pari, ms.plis 
+      FROM manche_scores ms
+      INNER JOIN game_players gp ON ms.game_id = gp.game_id AND ms.player_id = gp.player_id
+      WHERE ms.player_id = ? AND ms.pari IS NOT NULL AND ms.plis IS NOT NULL
+      ORDER BY ms.manche_num
+    ''',
+      [playerId],
+    );
+
+    final stats = <int, Map<String, List<int>>>{};
+
+    for (final row in result) {
+      final manche = row['manche_num'] as int;
+      final pari = row['pari'] as int;
+      final plis = row['plis'] as int;
+
+      stats.putIfAbsent(manche, () => {'paris': <int>[], 'plis': <int>[]});
+      stats[manche]!['paris']!.add(pari);
+      stats[manche]!['plis']!.add(plis);
     }
 
     return stats;
